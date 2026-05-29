@@ -149,8 +149,8 @@ pub(crate) async fn forward_request(
         (None, req.map(reqwest::Body::wrap))
     };
 
-    let has_injections = !rules.injection_rules.is_empty();
-    let enforce_deny = has_injections && !policy::is_llm_host(host);
+    let host_has_credentials = !rules.injection_rules.is_empty();
+    let enforce_deny = rules.policy_mode == "deny";
 
     let org_id = proxy_ctx.organization_id.as_deref().unwrap_or("");
     let pid = proxy_ctx.project_id.as_deref().unwrap_or("");
@@ -166,7 +166,7 @@ pub(crate) async fn forward_request(
         cache,
         &rules.policy_mode,
         enforce_deny,
-        false,
+        host_has_credentials,
     )
     .await;
 

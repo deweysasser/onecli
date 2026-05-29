@@ -198,20 +198,6 @@ fn is_git_push_discovery(path: &str) -> bool {
     base.ends_with("/info/refs") && query.split('&').any(|p| p == "service=git-receive-pack")
 }
 
-/// Returns true if the host belongs to a known LLM provider.
-/// LLM traffic bypasses deny-by-default policy and is always logged.
-pub(crate) fn is_llm_host(host: &str) -> bool {
-    let h = host.split(':').next().unwrap_or(host);
-    h.contains("anthropic.com")
-        || h.contains("openai.com")
-        || h.contains("chatgpt.com")
-        || h.contains("deepseek.com")
-        || h.contains("groq.com")
-        || h.contains("openrouter.ai")
-        || h.contains("moonshot.cn")
-        || h.contains("generativelanguage.googleapis.com")
-}
-
 /// Check if a request should be blocked by any policy rule (sync, block-only).
 /// Used in tests; production code uses `evaluate()`.
 #[allow(dead_code)]
@@ -803,35 +789,10 @@ mod tests {
         let store = crate::cache::create_store().await.unwrap();
         let rules: Vec<PolicyRule> = vec![];
         let d = evaluate(
-            "GET", "/", None, &rules, "agent1", &*store, "deny", true, false,
+            "org1", "proj1", "GET", "/", None, &rules, "agent1", &*store, "deny", true, false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::BlockedByDefaultPolicy));
     }
 
-    // ── LLM host detection tests ────────────────────────────────────
-
-    #[test]
-    fn is_llm_host_matches_known_providers() {
-        assert!(is_llm_host("api.anthropic.com"));
-        assert!(is_llm_host("api.openai.com"));
-        assert!(is_llm_host("chatgpt.com"));
-        assert!(is_llm_host("api.deepseek.com"));
-        assert!(is_llm_host("api.groq.com"));
-        assert!(is_llm_host("openrouter.ai"));
-        assert!(is_llm_host("api.moonshot.cn"));
-        assert!(is_llm_host("generativelanguage.googleapis.com"));
-    }
-
-    #[test]
-    fn is_llm_host_strips_port() {
-        assert!(is_llm_host("api.anthropic.com:443"));
-    }
-
-    #[test]
-    fn is_llm_host_rejects_non_llm() {
-        assert!(!is_llm_host("api.github.com"));
-        assert!(!is_llm_host("gmail.googleapis.com"));
-        assert!(!is_llm_host("example.com"));
-    }
 }
