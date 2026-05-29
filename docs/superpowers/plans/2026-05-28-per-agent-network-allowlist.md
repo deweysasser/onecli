@@ -15,10 +15,12 @@
 ## File Structure
 
 **Phase 1 — Data model**
+
 - Modify: `packages/db/prisma/schema.prisma` (`Agent.policyMode`, org default flip)
 - Create: `packages/db/prisma/migrations/<ts>_per_agent_policy_mode/migration.sql`
 
 **Phase 2 — Gateway enforcement (Rust)**
+
 - Modify: `apps/gateway/src/db.rs` (effective mode via `COALESCE`)
 - Modify: `apps/gateway/src/policy.rs` (`evaluate` gains `host_has_credentials`; delete `is_llm_host`)
 - Modify: `apps/gateway/src/gateway/forward.rs` + `apps/gateway/src/gateway/websocket.rs` (enforce on mode, not injections)
@@ -27,11 +29,13 @@
 - Modify: `apps/gateway/src/gateway/response.rs` (`connect_blocked` builder)
 
 **Phase 3 — Management API (TypeScript)**
+
 - Modify: `packages/api/src/validations/agent.ts` (`agentPolicyModeSchema`)
 - Modify: `packages/api/src/services/agent-service.ts` (`updateAgentPolicyMode`)
 - Modify: `packages/api/src/routes/agents.ts` (`PATCH /agents/:agentId/policy-mode`)
 
 **Phase 4 — Web UI**
+
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/custom-endpoint-form.tsx` (`allow` action option)
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/rule-card.tsx` (render allow action)
 - Create: `apps/web/src/app/(dashboard)/agents/_components/network-access-dialog.tsx`
@@ -45,6 +49,7 @@
 ### Task 1: Add per-agent `policyMode` and flip the org default
 
 **Files:**
+
 - Modify: `packages/db/prisma/schema.prisma:156-175` (Agent), `:23` (Organization default)
 - Create: `packages/db/prisma/migrations/<timestamp>_per_agent_policy_mode/migration.sql`
 
@@ -111,6 +116,7 @@ git commit -m "feat(db): per-agent policyMode, deny default, seed Anthropic base
 ### Task 2: Resolve the effective policy mode (agent overrides org)
 
 **Files:**
+
 - Modify: `apps/gateway/src/db.rs:141` (agent query)
 
 - [ ] **Step 1: Update the agent SQL to coalesce agent over org**
@@ -140,6 +146,7 @@ git commit -m "feat(gateway): resolve effective policy mode (agent overrides org
 Rationale: in deny mode a domain is allowed if it has an allow-family rule **or** the operator configured credentials for it (a secret or app connection) — so connecting an app doesn't dead-end. Anthropic works via its seeded rule regardless.
 
 **Files:**
+
 - Modify: `apps/gateway/src/policy.rs:66-155` (`evaluate`), tests in same file
 
 - [ ] **Step 1: Write failing tests for credential-implies-allow**
@@ -241,6 +248,7 @@ git commit -m "feat(gateway): treat configured credentials as implicit allow in 
 ### Task 4: Enforce deny on mode (drop `is_llm_host` / `has_injections` coupling)
 
 **Files:**
+
 - Modify: `apps/gateway/src/policy.rs` (delete `is_llm_host` + its tests)
 - Modify: `apps/gateway/src/gateway/forward.rs:152-164`
 - Modify: `apps/gateway/src/gateway/websocket.rs:103-116`
@@ -314,6 +322,7 @@ git commit -m "feat(gateway): enforce deny by mode, not by credential presence; 
 ### Task 5: Block unknown domains at CONNECT (no tunnel)
 
 **Files:**
+
 - Modify: `apps/gateway/src/connect.rs` (add `host_allowed_at_connect` + tests)
 - Modify: `apps/gateway/src/gateway/response.rs` (add `connect_blocked`)
 - Modify: `apps/gateway/src/gateway.rs:525-547` (use full response + gate)
@@ -470,6 +479,7 @@ git commit -m "feat(gateway): block disallowed domains at CONNECT with structure
 - [ ] **Step 1: Verify deny + allow behavior locally**
 
 With a local stack and an agent whose effective mode is `deny`:
+
 - `curl -x http://localhost:<gw> -H "Proxy-Authorization: Bearer <aoc_token>" https://api.anthropic.com/v1/...` → reaches Anthropic (seeded baseline rule).
 - Same against `https://example.com` → CONNECT returns `403` with `x-onecli-policy: blocked` and the JSON body.
 - Add an agent-scoped `allow` rule for `example.com` (via API in Phase 3 or DB), invalidate cache → now reaches it.
@@ -486,6 +496,7 @@ Document the observed results in the PR description. No commit.
 ### Task 7: Validation for per-agent policy mode
 
 **Files:**
+
 - Modify: `packages/api/src/validations/agent.ts`
 
 - [ ] **Step 1: Add the schema**
@@ -518,6 +529,7 @@ git commit -m "feat(api): add agentPolicyModeSchema"
 ### Task 8: Service to update per-agent policy mode
 
 **Files:**
+
 - Modify: `packages/api/src/services/agent-service.ts` (mirror `updateAgentSecretMode:260`)
 
 - [ ] **Step 1: Add the service function**
@@ -559,6 +571,7 @@ git commit -m "feat(api): updateAgentPolicyMode service"
 ### Task 9: `PATCH /agents/:agentId/policy-mode` route
 
 **Files:**
+
 - Modify: `packages/api/src/routes/agents.ts` (mirror the secret-mode route at `:114`)
 
 - [ ] **Step 1: Import the new service + schema**
@@ -570,27 +583,27 @@ Add `updateAgentPolicyMode` to the service import block and `agentPolicyModeSche
 After the `PATCH /:agentId/secret-mode` handler (`:114-134`), add:
 
 ```ts
-  // PATCH /agents/:agentId/policy-mode
-  app.patch("/:agentId/policy-mode", async (c) => {
-    const auth = c.get("auth");
-    const agentId = c.req.param("agentId");
-    const body = await c.req.json().catch(() => null);
-    const parsed = agentPolicyModeSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json(
-        { error: parsed.error.issues[0]?.message ?? "Invalid request body" },
-        400,
-      );
-    }
-
-    await updateAgentPolicyMode(
-      requireProjectId(auth),
-      agentId,
-      parsed.data.policyMode,
+// PATCH /agents/:agentId/policy-mode
+app.patch("/:agentId/policy-mode", async (c) => {
+  const auth = c.get("auth");
+  const agentId = c.req.param("agentId");
+  const body = await c.req.json().catch(() => null);
+  const parsed = agentPolicyModeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid request body" },
+      400,
     );
-    invalidateGatewayCache(c.req.raw);
-    return c.json({ success: true });
-  });
+  }
+
+  await updateAgentPolicyMode(
+    requireProjectId(auth),
+    agentId,
+    parsed.data.policyMode,
+  );
+  invalidateGatewayCache(c.req.raw);
+  return c.json({ success: true });
+});
 ```
 
 - [ ] **Step 3: Type-check + lint**
@@ -620,6 +633,7 @@ git commit -m "feat(api): PATCH /agents/:id/policy-mode endpoint"
 ### Task 10: Surface the `allow` action in the rules UI
 
 **Files:**
+
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/custom-endpoint-form.tsx`
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/rule-card.tsx`
 
@@ -656,6 +670,7 @@ git commit -m "feat(web): surface allow rules in the rules UI"
 ### Task 11: Per-agent policy-mode action + API client
 
 **Files:**
+
 - Modify: `apps/web/src/lib/actions/agents.ts`
 - Modify: `apps/web/src/lib/api/agents.ts` (client used by hooks)
 
@@ -700,12 +715,14 @@ git commit -m "feat(web): server action + client for per-agent policy mode"
 ### Task 12: Network-access dialog on the agent card
 
 **Files:**
+
 - Create: `apps/web/src/app/(dashboard)/agents/_components/network-access-dialog.tsx`
 - Modify: `apps/web/src/app/(dashboard)/agents/_components/agent-card.tsx`
 
 - [ ] **Step 1: Build the dialog**
 
 Create `network-access-dialog.tsx` (one component per file). Use the `manage-access-dialog.tsx` in the same folder as the structural template (Dialog + form + save). It must:
+
 - Show a mode control with three choices: **Inherit org default** (`null`), **Locked — Anthropic only** (`deny`), **Open — unlimited** (`allow`); call `setAgentPolicyMode(agentId, mode)` on change.
 - When mode is `deny`, show an **Allowed domains** editor: list this agent's `allow` rules (`agentId === agent.id`), an input to add a host pattern (calls the existing `createRule` action with `{ name, hostPattern, action: "allow", enabled: true, agentId }`), and a remove control per entry (calls `deleteRule`). Reuse `getRules`/`createRule`/`deleteRule` from `lib/actions/rules.ts`.
 
@@ -714,7 +731,11 @@ Create `network-access-dialog.tsx` (one component per file). Use the `manage-acc
 
 import { useState } from "react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "@onecli/ui/components/dialog";
 import { Button } from "@onecli/ui/components/button";
 import { setAgentPolicyMode } from "@/lib/actions/agents";
@@ -730,7 +751,11 @@ export interface NetworkAccessDialogProps {
 }
 
 export const NetworkAccessDialog = ({
-  open, onOpenChange, agentId, agentName, policyMode,
+  open,
+  onOpenChange,
+  agentId,
+  agentName,
+  policyMode,
 }: NetworkAccessDialogProps) => {
   const [mode, setMode] = useState<Mode>(policyMode);
   const [saving, setSaving] = useState(false);
@@ -752,19 +777,29 @@ export const NetworkAccessDialog = ({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          <Button variant={mode === null ? "default" : "outline"} disabled={saving} onClick={() => choose(null)}>
+          <Button
+            variant={mode === null ? "default" : "outline"}
+            disabled={saving}
+            onClick={() => choose(null)}
+          >
             Inherit organization default
           </Button>
-          <Button variant={mode === "deny" ? "default" : "outline"} disabled={saving} onClick={() => choose("deny")}>
+          <Button
+            variant={mode === "deny" ? "default" : "outline"}
+            disabled={saving}
+            onClick={() => choose("deny")}
+          >
             Locked — Anthropic only
           </Button>
-          <Button variant={mode === "allow" ? "default" : "outline"} disabled={saving} onClick={() => choose("allow")}>
+          <Button
+            variant={mode === "allow" ? "default" : "outline"}
+            disabled={saving}
+            onClick={() => choose("allow")}
+          >
             Open — unlimited
           </Button>
         </div>
-        {mode === "deny" ? (
-          <AllowedDomainsEditor agentId={agentId} />
-        ) : null}
+        {mode === "deny" ? <AllowedDomainsEditor agentId={agentId} /> : null}
       </DialogContent>
     </Dialog>
   );
@@ -809,6 +844,7 @@ Expected: lint, type-check, format, and `cargo test` all pass.
 ## Self-Review (completed during planning)
 
 **Spec coverage:**
+
 - Per-agent mode (inherit/deny/allow) → Tasks 1, 8, 9, 11, 12 ✓
 - Allow list as Allow PolicyRules, global vs per-agent → reuse (Phase 3 note) + Tasks 10, 12 ✓
 - Single enforcement path → Tasks 3, 4, 5 (one `evaluate`, one CONNECT gate) ✓
@@ -820,6 +856,6 @@ Expected: lint, type-check, format, and `cargo test` all pass.
 - Web UI → Tasks 10-12 ✓
 - Structured 403 contract → Task 5 (`connect_blocked`, `x-onecli-policy` header) ✓
 
-**Confirmed design decision:** credentials configured for a host count as an implicit allow in deny mode (Tasks 3, 5), so AI backends and connected apps are reachable by having a managed credential — no seeded baseline rule. Trade-off accepted: an agent passing its *own* key directly (no OneCLI-managed injection) is blocked in deny mode until an explicit allow rule is added.
+**Confirmed design decision:** credentials configured for a host count as an implicit allow in deny mode (Tasks 3, 5), so AI backends and connected apps are reachable by having a managed credential — no seeded baseline rule. Trade-off accepted: an agent passing its _own_ key directly (no OneCLI-managed injection) is blocked in deny mode until an explicit allow rule is added.
 
 **Open items carried from the spec (verify during implementation):** whether any LLM-traffic logging depended on `is_llm_host` (grep showed only the two enforcement call sites); org- vs project-level scope for the global list (org assumed).

@@ -46,11 +46,11 @@ communication — configured per agent, with a global list as well.**
 
 Three user-facing states per agent, all expressed through existing machinery:
 
-| State | Stored as | Behavior |
-|---|---|---|
-| **Locked (default)** | `policyMode = deny`, no extra allow rules | Only domains with a global Allow rule (seeded: Anthropic) are reachable |
-| **Allow-listed** | `policyMode = deny` + agent-scoped `Allow` rules | Anthropic + named domains |
-| **Open** | `policyMode = allow` | Unlimited |
+| State                | Stored as                                        | Behavior                                                                |
+| -------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| **Locked (default)** | `policyMode = deny`, no extra allow rules        | Only domains with a global Allow rule (seeded: Anthropic) are reachable |
+| **Allow-listed**     | `policyMode = deny` + agent-scoped `Allow` rules | Anthropic + named domains                                               |
+| **Open**             | `policyMode = allow`                             | Unlimited                                                               |
 
 The "allow list" is just `Allow` `PolicyRule` rows:
 
@@ -66,7 +66,7 @@ The "allow list" is just `Allow` `PolicyRule` rows:
   default. Mirrors `Organization.policyMode` semantics.
 - `db.rs` agent query (`db.rs:141`): change `o.policy_mode` to
   `COALESCE(a.policy_mode, o.policy_mode)` so the gateway resolves the
-  *effective* mode with no extra query. The resolved value continues to flow
+  _effective_ mode with no extra query. The resolved value continues to flow
   through `ConnectResponse.policy_mode`.
 - **Migration:**
   - Pin all existing organizations to `policyMode = "allow"` (preserve current
@@ -82,7 +82,7 @@ The "allow list" is just `Allow` `PolicyRule` rows:
 ### 2. Enforcement (core fix)
 
 - Drop the `has_injections` coupling and the `is_llm_host` bypass. `enforce_deny`
-  becomes simply *"is the effective mode `deny`?"*. Anthropic is then reachable
+  becomes simply _"is the effective mode `deny`?"_. Anthropic is then reachable
   only because of its seeded Allow rule — a single path, nothing magic.
 - Delete `is_llm_host` and its usages in `forward.rs` / `websocket.rs`.
   (Keep any always-log behavior for LLM traffic if it is independently
@@ -126,8 +126,8 @@ The "allow list" is just `Allow` `PolicyRule` rows:
   backend and validation already understand `allow`). The existing
   `RulesContent` already takes `policyMode` and an agent field, so this is
   incremental.
-- The seeded Anthropic baseline rule renders with a warning: *"This is the AI
-  baseline — removing it cuts off AI access for locked-down agents."*
+- The seeded Anthropic baseline rule renders with a warning: _"This is the AI
+  baseline — removing it cuts off AI access for locked-down agents."_
 
 ### 5. Blocked-request contract (for the CLI / agent)
 
