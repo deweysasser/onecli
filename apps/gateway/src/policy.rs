@@ -76,6 +76,7 @@ pub(crate) async fn evaluate(
     cache: &dyn CacheStore,
     policy_mode: &str,
     enforce_deny: bool,
+    host_has_credentials: bool,
 ) -> PolicyDecision {
     // Pass 1: block rules (absolute deny, highest priority)
     for rule in rules {
@@ -144,7 +145,8 @@ pub(crate) async fn evaluate(
         }
     }
 
-    // Pass 4: in deny mode, require an explicit allow rule when enforced.
+    // Pass 4: in deny mode, require an explicit allow rule (or configured
+    // credentials for the host) when enforced.
     if policy_mode == "deny" && enforce_deny {
         let has_allow = rules.iter().any(|rule| {
             matches_request(rule, request_method, request_path, request_body)
@@ -153,7 +155,7 @@ pub(crate) async fn evaluate(
                     PolicyAction::Allow | PolicyAction::RateLimit { .. }
                 )
         });
-        if !has_allow {
+        if !has_allow && !host_has_credentials {
             debug!(
                 method = request_method,
                 path = request_path,
@@ -354,6 +356,7 @@ mod tests {
         let rules = vec![rate_rule("*", Some("POST"), 5, 3600)];
         let decision = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(decision, PolicyDecision::Allow));
@@ -367,11 +370,13 @@ mod tests {
         // First 2 requests allowed
         let d1 = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d1, PolicyDecision::Allow));
         let d2 = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d2, PolicyDecision::Allow));
@@ -379,6 +384,7 @@ mod tests {
         // Third request rate limited
         let d3 = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d3, PolicyDecision::RateLimited { .. }));
@@ -392,10 +398,12 @@ mod tests {
         // Agent1 hits limit
         evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         let d = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::RateLimited { .. }));
@@ -403,6 +411,7 @@ mod tests {
         // Agent2 is unaffected
         let d = evaluate(
             "org1", "proj1", "POST", "/path", None, &rules, "agent2", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Allow));
@@ -426,6 +435,7 @@ mod tests {
             &*store,
             "allow",
             false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Blocked { .. }));
@@ -445,6 +455,7 @@ mod tests {
             "agent1",
             &*store,
             "allow",
+            false,
             false,
         )
         .await;
@@ -480,6 +491,7 @@ mod tests {
             &*store,
             "allow",
             false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::ManualApproval { .. }));
@@ -499,6 +511,7 @@ mod tests {
             "agent1",
             &*store,
             "allow",
+            false,
             false,
         )
         .await;
@@ -523,6 +536,7 @@ mod tests {
             &*store,
             "allow",
             false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Blocked { .. }));
@@ -537,6 +551,7 @@ mod tests {
         ];
         let d = evaluate(
             "org1", "proj1", "POST", "/v1/send", None, &rules, "agent1", &*store, "allow", false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::ManualApproval { .. }));
@@ -604,6 +619,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::BlockedByDefaultPolicy));
@@ -624,6 +640,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Allow));
@@ -647,6 +664,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Blocked { .. }));
@@ -667,6 +685,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Allow));
@@ -687,6 +706,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::ManualApproval { .. }));
@@ -707,6 +727,7 @@ mod tests {
             &*store,
             "deny",
             true,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::BlockedByDefaultPolicy));
@@ -726,6 +747,7 @@ mod tests {
             "agent1",
             &*store,
             "allow",
+            false,
             false,
         )
         .await;
@@ -747,6 +769,7 @@ mod tests {
             &*store,
             "deny",
             false,
+            false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Allow));
@@ -757,10 +780,33 @@ mod tests {
         let store = crate::cache::create_store().await.unwrap();
         let rules: Vec<PolicyRule> = vec![];
         let d = evaluate(
-            "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "", false,
+            "org1", "proj1", "POST", "/path", None, &rules, "agent1", &*store, "", false, false,
         )
         .await;
         assert!(matches!(d, PolicyDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn deny_mode_allows_when_host_has_credentials() {
+        let store = crate::cache::create_store().await.unwrap();
+        let rules: Vec<PolicyRule> = vec![];
+        let d = evaluate(
+            "org1", "proj1", "POST", "/v1/messages", None, &rules, "agent1", &*store, "deny", true,
+            true,
+        )
+        .await;
+        assert!(matches!(d, PolicyDecision::Allow));
+    }
+
+    #[tokio::test]
+    async fn deny_mode_blocks_when_no_rule_and_no_credentials() {
+        let store = crate::cache::create_store().await.unwrap();
+        let rules: Vec<PolicyRule> = vec![];
+        let d = evaluate(
+            "GET", "/", None, &rules, "agent1", &*store, "deny", true, false,
+        )
+        .await;
+        assert!(matches!(d, PolicyDecision::BlockedByDefaultPolicy));
     }
 
     // ── LLM host detection tests ────────────────────────────────────

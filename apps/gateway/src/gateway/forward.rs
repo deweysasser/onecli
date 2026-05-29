@@ -166,6 +166,7 @@ pub(crate) async fn forward_request(
         cache,
         &rules.policy_mode,
         enforce_deny,
+        false,
     )
     .await;
 

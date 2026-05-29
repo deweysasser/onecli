@@ -117,6 +117,7 @@ pub(super) async fn handle_websocket(
         cache,
         &rules.policy_mode,
         enforce_deny,
+        false,
     )
     .await;
 
