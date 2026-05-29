@@ -594,7 +594,7 @@ async fn handle_connect(
         }
     }
 
-    let mut intercept = connect_response.as_ref().map_or(false, |r| r.intercept);
+    let mut intercept = connect_response.as_ref().is_some_and(|r| r.intercept);
     let project_id = connect_response.as_ref().and_then(|r| r.project_id.clone());
     let organization_id = connect_response
         .as_ref()

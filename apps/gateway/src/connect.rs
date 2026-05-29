@@ -1108,8 +1108,7 @@ fn host_matches(request_host: &str, pattern: &str) -> bool {
 
     if let Some(suffix) = pattern.strip_prefix('*') {
         // "*.example.com" → suffix = ".example.com"
-        return request_host.ends_with(&*suffix)
-            && request_host.len() > suffix.len();
+        return request_host.ends_with(suffix) && request_host.len() > suffix.len();
     }
 
     false
