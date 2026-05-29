@@ -46,11 +46,18 @@ communication — configured per agent, with a global list as well.**
 
 Three user-facing states per agent, all expressed through existing machinery:
 
-| State                | Stored as                                        | Behavior                                                                |
-| -------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
-| **Locked (default)** | `policyMode = deny`, no extra allow rules        | Only domains with a global Allow rule (seeded: Anthropic) are reachable |
-| **Allow-listed**     | `policyMode = deny` + agent-scoped `Allow` rules | Anthropic + named domains                                               |
-| **Open**             | `policyMode = allow`                             | Unlimited                                                               |
+| State                | Stored as                                        | Behavior                                                                      |
+| -------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| **Locked (default)** | `policyMode = deny`, no extra allow rules        | Only hosts with OneCLI-managed credentials reachable (AI via the LLM API key) |
+| **Allow-listed**     | `policyMode = deny` + agent-scoped `Allow` rules | Credentialed hosts + named domains                                            |
+| **Open**             | `policyMode = allow`                             | Unlimited                                                                     |
+
+> **Implementation note (superseded during build):** the original design seeded
+> a deletable global Anthropic `Allow` rule. We dropped that in favor of
+> **credentials-imply-allow** — in deny mode a host with OneCLI-managed
+> credentials (a secret/app-connection injection) is implicitly allowed, so AI
+> backends are reachable purely by having a configured LLM credential. No seeded
+> rule is created.
 
 The "allow list" is just `Allow` `PolicyRule` rows:
 
@@ -73,11 +80,9 @@ The "allow list" is just `Allow` `PolicyRule` rows:
     behavior — nothing breaks on upgrade).
   - Change the `Organization.policyMode` column default to `"deny"` for new
     orgs (new-default-deny rollout).
-  - Seed each organization a **global Allow rule** for Anthropic
-    (`api.anthropic.com` plus the console/OAuth hosts required by the
-    token-exchange flow — to be confirmed against the Anthropic injection
-    logic in `connect.rs` `build_injections`). Tag it with
-    `metadata = { source: "ai_baseline" }` so the UI can recognize it.
+  - No seeded allow rule (see implementation note above): AI backends are
+    reachable in deny mode via credentials-imply-allow, so no per-org seed is
+    written.
 
 ### 2. Enforcement (core fix)
 
