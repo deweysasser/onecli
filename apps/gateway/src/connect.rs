@@ -54,6 +54,29 @@ pub(crate) struct ConnectResponse {
     pub policy_mode: String,
 }
 
+impl ConnectResponse {
+    /// Whether the agent may open a tunnel to `hostname` at CONNECT time.
+    /// In allow mode everything is permitted. In deny mode the host must have
+    /// an allow-family policy rule (rules are already host-filtered at resolve
+    /// time) or configured credentials (secret injection / app connection).
+    pub(crate) fn host_allowed_at_connect(&self, _hostname: &str) -> bool {
+        if self.policy_mode != "deny" {
+            return true;
+        }
+        let has_allow_rule = self.policy_rules.iter().any(|r| {
+            matches!(
+                r.action,
+                PolicyAction::Allow
+                    | PolicyAction::RateLimit { .. }
+                    | PolicyAction::ManualApproval { .. }
+            )
+        });
+        has_allow_rule
+            || !self.injection_rules.is_empty()
+            || !self.app_connections.is_empty()
+    }
+}
+
 /// Result of per-request app connection resolution.
 pub(crate) enum AppConnectionResult {
     /// Injection rules resolved from a single connection.
@@ -1213,6 +1236,57 @@ mod tests {
         let cached = cached.expect("should be cached");
         assert!(cached.access_restricted);
         assert_eq!(cached.project_id.as_deref(), Some("proj_restricted"));
+    }
+
+    // ── host_allowed_at_connect ─────────────────────────────────────────
+
+    #[test]
+    fn connect_gate_allows_in_allow_mode() {
+        let r = ConnectResponse {
+            policy_mode: "allow".to_string(),
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("evil.com"));
+    }
+
+    #[test]
+    fn connect_gate_blocks_unknown_host_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            ..Default::default()
+        };
+        assert!(!r.host_allowed_at_connect("evil.com"));
+    }
+
+    #[test]
+    fn connect_gate_allows_matching_allow_rule_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            policy_rules: vec![PolicyRule {
+                name: "allow-host".to_string(),
+                path_pattern: "*".to_string(),
+                method: None,
+                action: PolicyAction::Allow,
+                conditions_raw: None,
+            }],
+            ..Default::default()
+        };
+        // policy_rules are pre-filtered to this host at resolve time, so an
+        // allow-family rule present == this host is allowed.
+        assert!(r.host_allowed_at_connect("api.anthropic.com"));
+    }
+
+    #[test]
+    fn connect_gate_allows_when_credentials_present_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            injection_rules: vec![InjectionRule {
+                path_pattern: "*".to_string(),
+                injections: vec![],
+            }],
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("api.example.com"));
     }
 
     // ── host_matches ────────────────────────────────────────────────────

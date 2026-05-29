@@ -563,17 +563,10 @@ async fn handle_connect(
     // Resolve at CONNECT time for the intercept decision and agent identity.
     // DB injection/policy rules are NOT frozen here — they're re-resolved
     // per request inside the MITM tunnel from cache (see mitm.rs).
-    let (mut intercept, project_id, organization_id, agent_id, agent_name, agent_identifier) =
+    let connect_response: Option<connect::ConnectResponse> =
         if let Some(ref token) = agent_token {
             match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
-                Ok(resp) => (
-                    resp.intercept,
-                    resp.project_id,
-                    resp.organization_id,
-                    resp.agent_id,
-                    resp.agent_name,
-                    resp.agent_identifier,
-                ),
+                Ok(resp) => Some(resp),
                 Err(ConnectError::InvalidToken) => {
                     warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
                     return Ok(response::proxy_auth_required());
@@ -584,8 +577,28 @@ async fn handle_connect(
                 }
             }
         } else {
-            (false, None, None, None, None, None)
+            None
         };
+
+    // Deny-mode allow-list gate: refuse the CONNECT (no tunnel) when the host
+    // is not permitted for this agent.
+    if let Some(ref resp) = connect_response {
+        if !resp.host_allowed_at_connect(&hostname) {
+            warn!(peer = %peer_addr, host = %host, "CONNECT blocked by network allow list");
+            return Ok(response::connect_blocked(&host, resp.project_id.as_deref()));
+        }
+    }
+
+    let mut intercept = connect_response.as_ref().map_or(false, |r| r.intercept);
+    let project_id = connect_response.as_ref().and_then(|r| r.project_id.clone());
+    let organization_id = connect_response
+        .as_ref()
+        .and_then(|r| r.organization_id.clone());
+    let agent_id = connect_response.as_ref().and_then(|r| r.agent_id.clone());
+    let agent_name = connect_response.as_ref().and_then(|r| r.agent_name.clone());
+    let agent_identifier = connect_response
+        .as_ref()
+        .and_then(|r| r.agent_identifier.clone());
 
     // Vault fallback: resolved at CONNECT time and passed to mitm as a frozen
     // fallback. Vault queries are expensive (network calls to Bitwarden), so
