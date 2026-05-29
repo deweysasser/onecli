@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { policyModeSchema } from "./policy-rule";
 
 export const IDENTIFIER_REGEX = /^[a-z][a-z0-9-]{0,49}$/;
 
@@ -27,4 +28,9 @@ export const secretModeSchema = z.object({
 
 export const updateAgentSecretsSchema = z.object({
   secretIds: z.array(z.string()),
+});
+
+export const agentPolicyModeSchema = z.object({
+  // null clears the override → agent inherits the org default
+  policyMode: policyModeSchema.nullable(),
 });

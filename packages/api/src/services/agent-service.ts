@@ -276,6 +276,24 @@ export const updateAgentSecretMode = async (
   });
 };
 
+export const updateAgentPolicyMode = async (
+  projectId: string,
+  agentId: string,
+  policyMode: "allow" | "deny" | null,
+) => {
+  const agent = await db.agent.findFirst({
+    where: { id: agentId, projectId },
+    select: { id: true },
+  });
+
+  if (!agent) throw new ServiceError("NOT_FOUND", "Agent not found");
+
+  await db.agent.update({
+    where: { id: agentId },
+    data: { policyMode },
+  });
+};
+
 export const updateAgentSecrets = async (
   projectId: string,
   agentId: string,

@@ -11,6 +11,7 @@ import {
   deleteAgent,
   regenerateAgentToken,
   updateAgentSecretMode,
+  updateAgentPolicyMode,
   getAgentSecrets,
   updateAgentSecrets,
 } from "../services/agent-service";
@@ -18,6 +19,7 @@ import {
   createAgentSchema,
   renameAgentSchema,
   secretModeSchema,
+  agentPolicyModeSchema,
   updateAgentSecretsSchema,
 } from "../validations/agent";
 import { getResourceHooks } from "../providers";
@@ -128,6 +130,28 @@ export const agentRoutes = () => {
       requireProjectId(auth),
       agentId,
       parsed.data.mode,
+    );
+    invalidateGatewayCache(c.req.raw);
+    return c.json({ success: true });
+  });
+
+  // PATCH /agents/:agentId/policy-mode
+  app.patch("/:agentId/policy-mode", async (c) => {
+    const auth = c.get("auth");
+    const agentId = c.req.param("agentId");
+    const body = await c.req.json().catch(() => null);
+    const parsed = agentPolicyModeSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid request body" },
+        400,
+      );
+    }
+
+    await updateAgentPolicyMode(
+      requireProjectId(auth),
+      agentId,
+      parsed.data.policyMode,
     );
     invalidateGatewayCache(c.req.raw);
     return c.json({ success: true });
