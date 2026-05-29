@@ -4,11 +4,22 @@ import { useState } from "react";
 import { Loader2, Trash2, Globe } from "lucide-react";
 import { Button } from "@onecli/ui/components/button";
 import { Input } from "@onecli/ui/components/input";
+import { cn } from "@onecli/ui/lib/utils";
 import { useRules, useCreateRule, useDeleteRule } from "@/hooks/use-rules";
 
 interface AllowedDomainsEditorProps {
   agentId: string;
 }
+
+const validateHostPattern = (value: string): string | null => {
+  if (value === "*") {
+    return "Use the Open network mode to allow all hosts.";
+  }
+  if (value.startsWith("*") && !value.startsWith("*.")) {
+    return "Wildcards must look like *.example.com.";
+  }
+  return null;
+};
 
 export const AllowedDomainsEditor = ({
   agentId,
@@ -17,6 +28,7 @@ export const AllowedDomainsEditor = ({
   const createRule = useCreateRule();
   const deleteRule = useDeleteRule();
   const [hostInput, setHostInput] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const allowRules = allRules.filter(
     (r) => r.action === "allow" && r.agentId === agentId,
@@ -25,6 +37,12 @@ export const AllowedDomainsEditor = ({
   const handleAdd = () => {
     const trimmed = hostInput.trim();
     if (!trimmed) return;
+    const error = validateHostPattern(trimmed);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    setValidationError(null);
     createRule.mutate(
       {
         name: trimmed,
@@ -45,24 +63,35 @@ export const AllowedDomainsEditor = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <Input
-          placeholder="e.g. api.example.com"
-          value={hostInput}
-          onChange={(e) => setHostInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="h-8 text-sm"
-          disabled={createRule.isPending}
-        />
-        <Button
-          size="sm"
-          onClick={handleAdd}
-          disabled={!hostInput.trim() || createRule.isPending}
-          loading={createRule.isPending}
-          className="shrink-0"
-        >
-          Add
-        </Button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex gap-2">
+          <Input
+            placeholder="e.g. api.example.com"
+            value={hostInput}
+            onChange={(e) => {
+              setHostInput(e.target.value);
+              if (validationError) setValidationError(null);
+            }}
+            onKeyDown={handleKeyDown}
+            className={cn(
+              "h-8 text-sm",
+              validationError && "border-destructive",
+            )}
+            disabled={createRule.isPending}
+          />
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={!hostInput.trim() || createRule.isPending}
+            loading={createRule.isPending}
+            className="shrink-0"
+          >
+            Add
+          </Button>
+        </div>
+        {validationError && (
+          <p className="text-destructive text-xs">{validationError}</p>
+        )}
       </div>
 
       {loading ? (

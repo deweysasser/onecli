@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Globe, Lock, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,8 @@ import {
 } from "@onecli/ui/components/dialog";
 import { cn } from "@onecli/ui/lib/utils";
 import { setAgentPolicyMode } from "@/lib/actions/agents";
+import { getPolicyMode } from "@/lib/actions/policy-mode";
+import { queryKeys } from "@/lib/api/keys";
 import { AllowedDomainsEditor } from "./allowed-domains-editor";
 
 interface NetworkAccessDialogProps {
@@ -63,6 +66,14 @@ export const NetworkAccessDialog = ({
   );
   const [saving, setSaving] = useState(false);
 
+  const { data: fetchedOrgMode } = useQuery({
+    queryKey: queryKeys.policyMode.get(),
+    queryFn: getPolicyMode,
+    enabled: open,
+  });
+
+  const resolvedOrgDefault = fetchedOrgMode ?? orgDefaultMode;
+
   // Reset local state when the dialog opens so it reflects the latest prop value
   const handleOpenChange = (next: boolean) => {
     if (next) setLocalMode(policyMode);
@@ -83,7 +94,7 @@ export const NetworkAccessDialog = ({
     }
   };
 
-  const effectiveMode = localMode !== null ? localMode : orgDefaultMode;
+  const effectiveMode = localMode !== null ? localMode : resolvedOrgDefault;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
