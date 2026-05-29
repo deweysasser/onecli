@@ -152,7 +152,7 @@ fn non_connect_request_returns_400() {
 }
 
 #[test]
-fn connect_without_auth_tunnels() {
+fn connect_without_auth_rejected() {
     let tmp = tempfile::tempdir().expect("create temp dir");
     let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
     if db_url.is_empty() {
@@ -169,7 +169,7 @@ fn connect_without_auth_tunnels() {
     let mut stream = TcpStream::connect(format!("127.0.0.1:{port}")).expect("connect to gateway");
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
 
-    // CONNECT without Proxy-Authorization → plain tunnel (200)
+    // CONNECT without Proxy-Authorization → 407 (auth required)
     let req = "CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: api.anthropic.com:443\r\n\r\n";
     stream.write_all(req.as_bytes()).expect("send CONNECT");
 
@@ -177,7 +177,7 @@ fn connect_without_auth_tunnels() {
     let n = stream.read(&mut buf).expect("read response");
     let resp = String::from_utf8_lossy(&buf[..n]);
 
-    assert!(resp.contains("200"), "expected 200 (tunnel), got: {resp}");
+    assert!(resp.contains("407"), "expected 407 (auth required), got: {resp}");
 
     child.kill().ok();
     child.wait().ok();
@@ -259,7 +259,7 @@ fn http_proxy_with_invalid_token_returns_407() {
 }
 
 #[test]
-fn http_proxy_without_auth_forwards() {
+fn http_proxy_without_auth_rejected() {
     let tmp = tempfile::tempdir().expect("create temp dir");
     let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
     if db_url.is_empty() {
@@ -276,7 +276,7 @@ fn http_proxy_without_auth_forwards() {
     let mut stream = TcpStream::connect(format!("127.0.0.1:{port}")).expect("connect to gateway");
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
 
-    // HTTP proxy request without auth → should forward (200 from upstream)
+    // HTTP proxy request without auth → 407 (auth required)
     let req = "GET http://httpbin.org/get HTTP/1.1\r\nHost: httpbin.org\r\n\r\n";
     stream.write_all(req.as_bytes()).expect("send request");
 
@@ -284,10 +284,7 @@ fn http_proxy_without_auth_forwards() {
     let n = stream.read(&mut buf).expect("read response");
     let resp = String::from_utf8_lossy(&buf[..n]);
 
-    assert!(
-        resp.contains("HTTP/1.1 200"),
-        "expected 200 from upstream, got: {resp}"
-    );
+    assert!(resp.contains("407"), "expected 407 (auth required), got: {resp}");
 
     child.kill().ok();
     child.wait().ok();

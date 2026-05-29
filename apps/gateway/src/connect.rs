@@ -1099,13 +1099,17 @@ pub(crate) async fn resolve_from_cache(
 /// Check if a requested hostname matches a secret's host pattern.
 /// Supports exact match and wildcard prefix (`*.example.com` matches `api.example.com`).
 fn host_matches(request_host: &str, pattern: &str) -> bool {
+    let request_host = request_host.to_lowercase();
+    let pattern = pattern.to_lowercase();
+
     if request_host == pattern {
         return true;
     }
 
     if let Some(suffix) = pattern.strip_prefix('*') {
         // "*.example.com" → suffix = ".example.com"
-        return request_host.ends_with(suffix) && request_host.len() > suffix.len();
+        return request_host.ends_with(&*suffix)
+            && request_host.len() > suffix.len();
     }
 
     false
@@ -1308,5 +1312,13 @@ mod tests {
     #[test]
     fn host_wildcard_no_match_without_dot() {
         assert!(!host_matches("notexample.com", "*.example.com"));
+    }
+
+    #[test]
+    fn host_matches_is_case_insensitive() {
+        assert!(host_matches("API.Example.Com", "api.example.com"));
+        assert!(host_matches("api.example.com", "*.Example.com"));
+        assert!(host_matches("Sub.Example.COM", "*.example.com"));
+        assert!(!host_matches("api.other.com", "*.example.com"));
     }
 }

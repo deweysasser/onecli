@@ -560,6 +560,11 @@ async fn handle_connect(
     // Extract agent token from Proxy-Authorization header.
     let agent_token = inject::extract_agent_token(&req).filter(|t| !t.is_empty());
 
+    if agent_token.is_none() {
+        warn!(peer = %peer_addr, host = %host, "CONNECT rejected: missing agent token");
+        return Ok(response::proxy_auth_required());
+    }
+
     // Resolve at CONNECT time for the intercept decision and agent identity.
     // DB injection/policy rules are NOT frozen here — they're re-resolved
     // per request inside the MITM tunnel from cache (see mitm.rs).
@@ -725,6 +730,11 @@ async fn handle_http_proxy(
 
     let agent_token = inject::extract_agent_token(&req).filter(|t| !t.is_empty());
 
+    if agent_token.is_none() {
+        warn!(peer = %peer_addr, host = %authority, "HTTP proxy rejected: missing agent token");
+        return Ok(response::proxy_auth_required());
+    }
+
     let connection_id = connect::extract_connection_id(req.headers());
 
     let mut resolved = if let Some(ref token) = agent_token {
@@ -742,6 +752,13 @@ async fn handle_http_proxy(
     } else {
         connect::ConnectResponse::default()
     };
+
+    // Deny-mode allow-list gate: refuse before forwarding when the host
+    // is not permitted for this agent.
+    if !resolved.host_allowed_at_connect(&hostname) {
+        warn!(peer = %peer_addr, host = %authority, "HTTP proxy blocked by network allow list");
+        return Ok(response::connect_blocked(&authority, resolved.project_id.as_deref()));
+    }
 
     // Per-request app connection disambiguation
     let mut resolved_finalizer: Option<crate::apps::RequestFinalizer> = None;
