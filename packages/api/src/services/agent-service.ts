@@ -19,6 +19,7 @@ export const listAgents = async (projectId: string) => {
       accessToken: true,
       isDefault: true,
       secretMode: true,
+      policyMode: true,
       createdAt: true,
       _count: { select: { agentSecrets: true, agentAppConnections: true } },
     },
@@ -28,6 +29,7 @@ export const listAgents = async (projectId: string) => {
   return agents.map((a) => ({
     ...a,
     secretMode: a.secretMode as SecretMode,
+    policyMode: a.policyMode as "allow" | "deny" | null,
   }));
 };
 

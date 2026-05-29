@@ -5,6 +5,7 @@ export interface Agent {
   accessToken: string;
   isDefault: boolean;
   secretMode: string;
+  policyMode: "allow" | "deny" | null;
   createdAt: string;
   _count: { agentSecrets: number; agentAppConnections: number };
 }
