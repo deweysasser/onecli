@@ -582,7 +582,7 @@ async fn handle_connect(
                 }
             }
         } else {
-            None
+            unreachable!("agent_token is Some: checked by the no-token guard above")
         };
 
     // Deny-mode allow-list gate: refuse the CONNECT (no tunnel) when the host
@@ -750,7 +750,7 @@ async fn handle_http_proxy(
             }
         }
     } else {
-        connect::ConnectResponse::default()
+        unreachable!("agent_token is Some: checked by the no-token guard above")
     };
 
     // Deny-mode allow-list gate: refuse before forwarding when the host

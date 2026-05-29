@@ -794,5 +794,4 @@ mod tests {
         .await;
         assert!(matches!(d, PolicyDecision::BlockedByDefaultPolicy));
     }
-
 }

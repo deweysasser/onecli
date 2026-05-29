@@ -1107,8 +1107,17 @@ fn host_matches(request_host: &str, pattern: &str) -> bool {
     }
 
     if let Some(suffix) = pattern.strip_prefix('*') {
-        // "*.example.com" → suffix = ".example.com"
-        return request_host.ends_with(suffix) && request_host.len() > suffix.len();
+        // Bare "*" matches every host (e.g. a block-all / rate-limit-all rule).
+        if suffix.is_empty() {
+            return true;
+        }
+        // Otherwise the wildcard must be "*.domain" — a "*" prefix without a
+        // dot must NOT superset-match (e.g. "*evil.com" must not match
+        // "notevil.com").
+        if suffix.starts_with('.') {
+            return request_host.ends_with(suffix) && request_host.len() > suffix.len();
+        }
+        return false;
     }
 
     false
@@ -1292,6 +1301,22 @@ mod tests {
         assert!(r.host_allowed_at_connect("api.example.com"));
     }
 
+    #[test]
+    fn connect_gate_allows_when_app_connection_present_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            app_connections: vec![db::AppConnectionRow {
+                id: "conn_test".to_string(),
+                provider: "github".to_string(),
+                credentials: None,
+                label: None,
+                metadata: None,
+            }],
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("api.github.com"));
+    }
+
     // ── host_matches ────────────────────────────────────────────────────
 
     #[test]
@@ -1319,5 +1344,17 @@ mod tests {
         assert!(host_matches("api.example.com", "*.Example.com"));
         assert!(host_matches("Sub.Example.COM", "*.example.com"));
         assert!(!host_matches("api.other.com", "*.example.com"));
+    }
+
+    #[test]
+    fn host_no_dot_wildcard_does_not_superset() {
+        assert!(!host_matches("notevil.com", "*evil.com"));
+        assert!(!host_matches("api.evil.com", "*evil.com")); // must use *.evil.com
+    }
+
+    #[test]
+    fn host_bare_wildcard_matches_all() {
+        assert!(host_matches("anything.example.org", "*"));
+        assert!(host_matches("x", "*"));
     }
 }

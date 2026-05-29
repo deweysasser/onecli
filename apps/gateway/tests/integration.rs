@@ -184,7 +184,7 @@ fn connect_without_auth_rejected() {
 }
 
 #[test]
-fn connect_with_invalid_token_returns_401() {
+fn connect_with_invalid_token_returns_407() {
     let tmp = tempfile::tempdir().expect("create temp dir");
     let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
     if db_url.is_empty() {
