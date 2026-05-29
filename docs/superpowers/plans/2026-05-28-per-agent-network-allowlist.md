@@ -4,7 +4,7 @@
 
 **Goal:** Turn the OneCLI gateway from an effectively-open proxy into a per-agent network allow list — every agent reaches Anthropic by default and nothing else, operators allow extra domains by name (per-agent or globally), or set an agent fully open.
 
-**Architecture:** Reuse the existing policy engine and `PolicyRule` storage — one enforcement path. Add a nullable per-agent `policyMode` that overrides the org default; express allow lists as `Allow` policy rules (`agentId = null` = global, `agentId = set` = per-agent); seed Anthropic as a deletable global allow rule; fix the deny enforcement so it blocks unknown domains; gate blocked domains at CONNECT so no tunnel opens.
+**Architecture:** Reuse the existing policy engine and `PolicyRule` storage — one enforcement path. Add a nullable per-agent `policyMode` that overrides the org default; express allow lists as `Allow` policy rules (`agentId = null` = global, `agentId = set` = per-agent). In deny mode a host is allowed if it has an allow-family rule **or** OneCLI-managed credentials for it (a secret/app-connection injection) — so AI backends are reachable purely by having a credential, with no seeded baseline rule needed. Fix deny enforcement so it blocks unknown domains; gate blocked domains at CONNECT so no tunnel opens.
 
 **Tech Stack:** Rust (hyper/axum gateway, `cargo test`), Prisma + PostgreSQL, Hono REST API (TypeScript), Next.js 16 App Router + React + shadcn/ui.
 
@@ -30,11 +30,10 @@
 - Modify: `packages/api/src/validations/agent.ts` (`agentPolicyModeSchema`)
 - Modify: `packages/api/src/services/agent-service.ts` (`updateAgentPolicyMode`)
 - Modify: `packages/api/src/routes/agents.ts` (`PATCH /agents/:agentId/policy-mode`)
-- Modify: org-creation path (seed baseline rule for new orgs)
 
 **Phase 4 — Web UI**
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/custom-endpoint-form.tsx` (`allow` action option)
-- Modify: `apps/web/src/app/(dashboard)/rules/_components/rule-card.tsx` (render allow + baseline warning)
+- Modify: `apps/web/src/app/(dashboard)/rules/_components/rule-card.tsx` (render allow action)
 - Create: `apps/web/src/app/(dashboard)/agents/_components/network-access-dialog.tsx`
 - Modify: `apps/web/src/app/(dashboard)/agents/_components/agent-card.tsx` (open the dialog)
 - Modify: `apps/web/src/lib/actions/agents.ts` (per-agent policy-mode action) and `apps/web/src/lib/api/agents.ts` (client method)
@@ -82,26 +81,21 @@ ALTER TABLE "agents" ADD COLUMN "policy_mode" TEXT;
 -- New orgs default to locked-down; existing orgs already hold 'allow' from the
 -- prior migration's default, so flipping the default does NOT change them.
 ALTER TABLE "organizations" ALTER COLUMN "policy_mode" SET DEFAULT 'deny';
-
--- Seed an AI baseline allow rule for every existing organization so Anthropic
--- stays reachable when an org switches to deny. Deletable like any other rule.
-INSERT INTO "policy_rules"
-  ("id", "scope", "organization_id", "project_id", "agent_id", "name",
-   "host_pattern", "action", "enabled", "metadata", "created_at", "updated_at")
-SELECT
-  gen_random_uuid(), 'organization', o."id", NULL, NULL, 'Anthropic (AI baseline)',
-  '*.anthropic.com', 'allow', true, '{"source":"ai_baseline"}'::jsonb, now(), now()
-FROM "organizations" o;
 ```
+
+No seeded allow rule: in deny mode a host with OneCLI-managed credentials is
+implicitly allowed (Tasks 3 & 5), so AI backends are reachable as soon as a
+credential exists. An agent with no managed credential for a host is blocked
+until an explicit allow rule is added — this is the intended behavior.
 
 - [ ] **Step 4: Apply the migration and regenerate the client**
 
 Run: `pnpm db:migrate` (dev) then `pnpm db:generate`
 Expected: migration applies cleanly; `prisma generate` reports success.
 
-- [ ] **Step 5: Verify the seed and defaults**
+- [ ] **Step 5: Verify the column and defaults**
 
-Run: `pnpm db:studio` (or `psql`) and confirm: each org has one `policy_rules` row with `action='allow'`, `host_pattern='*.anthropic.com'`, `metadata->>'source'='ai_baseline'`; `agents.policy_mode` is nullable; a freshly inserted org row gets `policy_mode='deny'`.
+Run: `pnpm db:studio` (or `psql`) and confirm: `agents.policy_mode` is nullable; existing org rows still read `policy_mode='allow'`; a freshly inserted org row gets `policy_mode='deny'`.
 
 - [ ] **Step 6: Commit**
 
@@ -621,59 +615,9 @@ git add packages/api/src/routes/agents.ts
 git commit -m "feat(api): PATCH /agents/:id/policy-mode endpoint"
 ```
 
-### Task 10: Seed the AI baseline rule when a new org is created
-
-**Files:**
-- Modify: the organization-creation code path
-
-- [ ] **Step 1: Locate org creation**
-
-Run: `grep -rn "organization.create\|db.organization.create\|createOrganization" packages/api/src apps/web/src | grep -v node_modules`
-Identify where a new `Organization` row is inserted (e.g. signup/provisioning).
-
-- [ ] **Step 2: Create the baseline rule alongside the org**
-
-In that path, immediately after the org is created, insert the same baseline rule the migration seeds (so new orgs match migrated ones). Prefer a shared helper in `policy-rule-service.ts`:
-
-```ts
-export const seedAiBaselineRule = async (organizationId: string) => {
-  await db.policyRule.create({
-    data: {
-      scope: "organization",
-      organizationId,
-      name: "Anthropic (AI baseline)",
-      hostPattern: "*.anthropic.com",
-      action: "allow",
-      enabled: true,
-      metadata: { source: "ai_baseline" },
-    },
-  });
-};
-```
-
-Call `seedAiBaselineRule(org.id)` in the org-creation flow.
-
-- [ ] **Step 3: Type-check**
-
-Run: `pnpm --filter @onecli/api check-types`
-Expected: no errors.
-
-- [ ] **Step 4: Verify with a fresh org**
-
-Create a new org (sign up a test user or call the provisioning path); confirm it has the `ai_baseline` allow rule and `policy_mode = 'deny'`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/api/src
-git commit -m "feat(api): seed Anthropic baseline allow rule for new organizations"
-```
-
----
-
 ## Phase 4 — Web UI
 
-### Task 11: Surface the `allow` action and baseline-rule warning
+### Task 10: Surface the `allow` action in the rules UI
 
 **Files:**
 - Modify: `apps/web/src/app/(dashboard)/rules/_components/custom-endpoint-form.tsx`
@@ -689,18 +633,9 @@ Open `custom-endpoint-form.tsx` and find the array/list of selectable actions (t
 
 Ensure the form submits `action: "allow"` with `hostPattern` (and optional `agentId`); rate-limit fields stay hidden for `allow`. The action enum in `validations/policy-rule.ts` already accepts `"allow"`, so no validation change is needed.
 
-- [ ] **Step 2: Render allow rules and the baseline warning in `rule-card.tsx`**
+- [ ] **Step 2: Render allow rules in `rule-card.tsx`**
 
-In `rule-card.tsx`, add a visual treatment for `action === "allow"` (e.g. a green/permissive badge alongside the existing block/rate-limit/approval badges). For the seeded baseline, detect `rule.metadata?.source === "ai_baseline"` and render a muted note:
-
-```tsx
-{rule.metadata && typeof rule.metadata === "object" &&
- "source" in rule.metadata && rule.metadata.source === "ai_baseline" ? (
-  <p className="text-muted-foreground text-xs">
-    AI baseline — removing this cuts off Anthropic for locked-down agents.
-  </p>
-) : null}
-```
+In `rule-card.tsx`, add a visual treatment for `action === "allow"` (e.g. a green/permissive badge alongside the existing block/rate-limit/approval badges) so allow-list entries are distinguishable.
 
 - [ ] **Step 3: Type-check, lint, format**
 
@@ -709,16 +644,16 @@ Expected: no errors.
 
 - [ ] **Step 4: Manual UI check**
 
-Run: `pnpm dev`; open `/rules`; create a custom-endpoint rule with action **Allow** and a host; confirm it saves and the card shows the allow badge; confirm the seeded Anthropic rule shows the baseline note.
+Run: `pnpm dev`; open `/rules`; create a custom-endpoint rule with action **Allow** and a host; confirm it saves and the card shows the allow badge.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add "apps/web/src/app/(dashboard)/rules/_components/custom-endpoint-form.tsx" "apps/web/src/app/(dashboard)/rules/_components/rule-card.tsx"
-git commit -m "feat(web): surface allow rules and AI baseline warning"
+git commit -m "feat(web): surface allow rules in the rules UI"
 ```
 
-### Task 12: Per-agent policy-mode action + API client
+### Task 11: Per-agent policy-mode action + API client
 
 **Files:**
 - Modify: `apps/web/src/lib/actions/agents.ts`
@@ -762,7 +697,7 @@ git add apps/web/src/lib
 git commit -m "feat(web): server action + client for per-agent policy mode"
 ```
 
-### Task 13: Network-access dialog on the agent card
+### Task 12: Network-access dialog on the agent card
 
 **Files:**
 - Create: `apps/web/src/app/(dashboard)/agents/_components/network-access-dialog.tsx`
@@ -874,17 +809,17 @@ Expected: lint, type-check, format, and `cargo test` all pass.
 ## Self-Review (completed during planning)
 
 **Spec coverage:**
-- Per-agent mode (inherit/deny/allow) → Tasks 1, 8, 9, 12, 13 ✓
-- Allow list as Allow PolicyRules, global vs per-agent → reuse (Phase 3 note) + Tasks 11, 13 ✓
+- Per-agent mode (inherit/deny/allow) → Tasks 1, 8, 9, 11, 12 ✓
+- Allow list as Allow PolicyRules, global vs per-agent → reuse (Phase 3 note) + Tasks 10, 12 ✓
 - Single enforcement path → Tasks 3, 4, 5 (one `evaluate`, one CONNECT gate) ✓
-- AI baseline as seeded, editable, deletable rule → Tasks 1, 10, 11 (warning) ✓
+- AI backends reachable via managed credentials (no seeded rule) → Tasks 3, 5 ✓
 - Enforcement fix (deny blocks unknown hosts) → Tasks 3, 4 ✓
 - CONNECT-time blocking, no tunnel → Task 5 ✓
 - New-default-deny, existing orgs pinned to allow → Task 1 (existing rows keep prior `allow`; default flips) ✓
 - Management API for nanoclaw → Tasks 7-9 (mode) + existing rules API (entries) ✓
-- Web UI → Tasks 11-13 ✓
+- Web UI → Tasks 10-12 ✓
 - Structured 403 contract → Task 5 (`connect_blocked`, `x-onecli-policy` header) ✓
 
-**Design refinement flagged for the user:** credentials configured for a host count as an implicit allow in deny mode (Tasks 3, 5) so connecting an app does not dead-end. Anthropic is additionally guaranteed by its seeded rule. If you want a stricter "explicit rules only" model, drop `host_has_credentials` from `evaluate` and the credential checks from `host_allowed_at_connect`, and instead auto-create allow rules when secrets/app connections are added.
+**Confirmed design decision:** credentials configured for a host count as an implicit allow in deny mode (Tasks 3, 5), so AI backends and connected apps are reachable by having a managed credential — no seeded baseline rule. Trade-off accepted: an agent passing its *own* key directly (no OneCLI-managed injection) is blocked in deny mode until an explicit allow rule is added.
 
-**Open items carried from the spec (verify during implementation):** exact Anthropic OAuth/token-exchange hosts (the `*.anthropic.com` seed should cover them — confirm); whether any LLM-traffic logging depended on `is_llm_host` (grep showed only the two enforcement call sites); org- vs project-level scope for the global list (org assumed).
+**Open items carried from the spec (verify during implementation):** whether any LLM-traffic logging depended on `is_llm_host` (grep showed only the two enforcement call sites); org- vs project-level scope for the global list (org assumed).
