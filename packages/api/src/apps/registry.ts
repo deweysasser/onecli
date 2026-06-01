@@ -4,6 +4,7 @@ import { confluence } from "./confluence";
 import { docker } from "./docker";
 import { github } from "./github";
 import { githubApp } from "./github-app";
+import { gitlab } from "./gitlab";
 import { gmail } from "./gmail";
 import { jira } from "./jira";
 import { googleAdmin } from "./google-admin";
@@ -40,6 +41,7 @@ const staticApps: AppDefinition[] = [
   gmail,
   github,
   githubApp,
+  gitlab,
   googleDrive,
   googleCalendar,
   googleChat,
