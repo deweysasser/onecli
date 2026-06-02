@@ -1311,6 +1311,7 @@ mod tests {
                 credentials: None,
                 label: None,
                 metadata: None,
+                session_policy: None,
             }],
             ..Default::default()
         };
