@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { resolveProjectContext } from "@/lib/actions/resolve-user";
 import type {
   SecretMode,
@@ -18,7 +19,9 @@ import {
   updateAgentSecrets as updateAgentSecretsService,
   getAgentAppConnections as getAgentAppConnectionsService,
   updateAgentAppConnections as updateAgentAppConnectionsService,
+  updateAgentPolicyMode as updateAgentPolicyModeService,
 } from "@onecli/api/services/agent-service";
+import { invalidateGatewayCacheForOrg } from "@onecli/api/lib/gateway-invalidate";
 import {
   withAudit,
   AUDIT_ACTIONS,
@@ -175,4 +178,25 @@ export const updateAgentAppConnections = async (
       metadata: { agentId, appConnectionCount: connections.length },
     }),
   );
+};
+
+export const setAgentPolicyMode = async (
+  agentId: string,
+  policyMode: "allow" | "deny" | null,
+): Promise<void> => {
+  const { userId, userEmail, projectId, organizationId } =
+    await resolveProjectContext();
+  await withAudit(
+    () => updateAgentPolicyModeService(projectId, agentId, policyMode),
+    () => ({
+      projectId,
+      userId,
+      userEmail,
+      action: AUDIT_ACTIONS.UPDATE,
+      service: AUDIT_SERVICES.AGENT,
+      metadata: { agentId, policyMode },
+    }),
+  );
+  invalidateGatewayCacheForOrg(organizationId);
+  revalidatePath("/", "layout");
 };

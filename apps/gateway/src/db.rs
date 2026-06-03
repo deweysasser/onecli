@@ -180,7 +180,7 @@ pub(crate) async fn find_agent_by_token(
     access_token: &str,
 ) -> Result<Option<AgentRow>> {
     sqlx::query_as::<_, AgentRow>(
-        r#"SELECT a.id, a.name, a.identifier, a.project_id, p.organization_id, a.secret_mode, o.subscription_status, o.policy_mode
+        r#"SELECT a.id, a.name, a.identifier, a.project_id, p.organization_id, a.secret_mode, o.subscription_status, COALESCE(a.policy_mode, o.policy_mode) AS policy_mode
            FROM agents a
            JOIN projects p ON a.project_id = p.id
            JOIN organizations o ON p.organization_id = o.id

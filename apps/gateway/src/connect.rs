@@ -54,6 +54,27 @@ pub(crate) struct ConnectResponse {
     pub policy_mode: String,
 }
 
+impl ConnectResponse {
+    /// Whether the agent may open a tunnel to `hostname` at CONNECT time.
+    /// In allow mode everything is permitted. In deny mode the host must have
+    /// an allow-family policy rule (rules are already host-filtered at resolve
+    /// time) or configured credentials (secret injection / app connection).
+    pub(crate) fn host_allowed_at_connect(&self, _hostname: &str) -> bool {
+        if self.policy_mode != "deny" {
+            return true;
+        }
+        let has_allow_rule = self.policy_rules.iter().any(|r| {
+            matches!(
+                r.action,
+                PolicyAction::Allow
+                    | PolicyAction::RateLimit { .. }
+                    | PolicyAction::ManualApproval { .. }
+            )
+        });
+        has_allow_rule || !self.injection_rules.is_empty() || !self.app_connections.is_empty()
+    }
+}
+
 /// Result of per-request app connection resolution.
 pub(crate) enum AppConnectionResult {
     /// Injection rules resolved from a single connection.
@@ -1076,13 +1097,25 @@ pub(crate) async fn resolve_from_cache(
 /// Check if a requested hostname matches a secret's host pattern.
 /// Supports exact match and wildcard prefix (`*.example.com` matches `api.example.com`).
 fn host_matches(request_host: &str, pattern: &str) -> bool {
+    let request_host = request_host.to_lowercase();
+    let pattern = pattern.to_lowercase();
+
     if request_host == pattern {
         return true;
     }
 
     if let Some(suffix) = pattern.strip_prefix('*') {
-        // "*.example.com" → suffix = ".example.com"
-        return request_host.ends_with(suffix) && request_host.len() > suffix.len();
+        // Bare "*" matches every host (e.g. a block-all / rate-limit-all rule).
+        if suffix.is_empty() {
+            return true;
+        }
+        // Otherwise the wildcard must be "*.domain" — a "*" prefix without a
+        // dot must NOT superset-match (e.g. "*evil.com" must not match
+        // "notevil.com").
+        if suffix.starts_with('.') {
+            return request_host.ends_with(suffix) && request_host.len() > suffix.len();
+        }
+        return false;
     }
 
     false
@@ -1215,6 +1248,74 @@ mod tests {
         assert_eq!(cached.project_id.as_deref(), Some("proj_restricted"));
     }
 
+    // ── host_allowed_at_connect ─────────────────────────────────────────
+
+    #[test]
+    fn connect_gate_allows_in_allow_mode() {
+        let r = ConnectResponse {
+            policy_mode: "allow".to_string(),
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("evil.com"));
+    }
+
+    #[test]
+    fn connect_gate_blocks_unknown_host_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            ..Default::default()
+        };
+        assert!(!r.host_allowed_at_connect("evil.com"));
+    }
+
+    #[test]
+    fn connect_gate_allows_matching_allow_rule_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            policy_rules: vec![PolicyRule {
+                name: "allow-host".to_string(),
+                path_pattern: "*".to_string(),
+                method: None,
+                action: PolicyAction::Allow,
+                conditions_raw: None,
+            }],
+            ..Default::default()
+        };
+        // policy_rules are pre-filtered to this host at resolve time, so an
+        // allow-family rule present == this host is allowed.
+        assert!(r.host_allowed_at_connect("api.anthropic.com"));
+    }
+
+    #[test]
+    fn connect_gate_allows_when_credentials_present_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            injection_rules: vec![InjectionRule {
+                path_pattern: "*".to_string(),
+                injections: vec![],
+            }],
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("api.example.com"));
+    }
+
+    #[test]
+    fn connect_gate_allows_when_app_connection_present_in_deny_mode() {
+        let r = ConnectResponse {
+            policy_mode: "deny".to_string(),
+            app_connections: vec![db::AppConnectionRow {
+                id: "conn_test".to_string(),
+                provider: "github".to_string(),
+                credentials: None,
+                label: None,
+                metadata: None,
+                session_policy: None,
+            }],
+            ..Default::default()
+        };
+        assert!(r.host_allowed_at_connect("api.github.com"));
+    }
+
     // ── host_matches ────────────────────────────────────────────────────
 
     #[test]
@@ -1234,5 +1335,25 @@ mod tests {
     #[test]
     fn host_wildcard_no_match_without_dot() {
         assert!(!host_matches("notexample.com", "*.example.com"));
+    }
+
+    #[test]
+    fn host_matches_is_case_insensitive() {
+        assert!(host_matches("API.Example.Com", "api.example.com"));
+        assert!(host_matches("api.example.com", "*.Example.com"));
+        assert!(host_matches("Sub.Example.COM", "*.example.com"));
+        assert!(!host_matches("api.other.com", "*.example.com"));
+    }
+
+    #[test]
+    fn host_no_dot_wildcard_does_not_superset() {
+        assert!(!host_matches("notevil.com", "*evil.com"));
+        assert!(!host_matches("api.evil.com", "*evil.com")); // must use *.evil.com
+    }
+
+    #[test]
+    fn host_bare_wildcard_matches_all() {
+        assert!(host_matches("anything.example.org", "*"));
+        assert!(host_matches("x", "*"));
     }
 }

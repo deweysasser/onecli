@@ -19,6 +19,7 @@ export const listAgents = async (projectId: string) => {
       accessToken: true,
       isDefault: true,
       secretMode: true,
+      policyMode: true,
       createdAt: true,
       _count: { select: { agentSecrets: true, agentAppConnections: true } },
     },
@@ -28,6 +29,7 @@ export const listAgents = async (projectId: string) => {
   return agents.map((a) => ({
     ...a,
     secretMode: a.secretMode as SecretMode,
+    policyMode: a.policyMode as "allow" | "deny" | null,
   }));
 };
 
@@ -273,6 +275,24 @@ export const updateAgentSecretMode = async (
   await db.agent.update({
     where: { id: agentId },
     data: { secretMode: mode },
+  });
+};
+
+export const updateAgentPolicyMode = async (
+  projectId: string,
+  agentId: string,
+  policyMode: "allow" | "deny" | null,
+) => {
+  const agent = await db.agent.findFirst({
+    where: { id: agentId, projectId },
+    select: { id: true },
+  });
+
+  if (!agent) throw new ServiceError("NOT_FOUND", "Agent not found");
+
+  await db.agent.update({
+    where: { id: agentId },
+    data: { policyMode },
   });
 };
 

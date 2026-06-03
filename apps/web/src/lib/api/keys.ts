@@ -42,4 +42,8 @@ export const queryKeys = {
     all: () => ["billing", ...scope()] as const,
     agentCost: () => [...queryKeys.billing.all(), "agentCost"] as const,
   },
+  policyMode: {
+    all: () => ["policyMode", ...scope()] as const,
+    get: () => [...queryKeys.policyMode.all(), "get"] as const,
+  },
 };

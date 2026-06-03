@@ -389,32 +389,13 @@ export const CustomEndpointForm = ({
       {/* ── Step 3: Action ───────────────────────────────────── */}
       {step === "action" && (
         <div className="space-y-4 pt-5">
-          <div className="grid grid-cols-3 gap-2">
-            {isDenyMode ? (
-              <button
-                type="button"
-                onClick={() => setAction("allow")}
-                className={cn(
-                  "flex flex-col gap-1.5 rounded-md border p-3.5 text-left transition-colors",
-                  action === "allow"
-                    ? "border-emerald-500 bg-emerald-500/5"
-                    : "hover:bg-muted/50 hover:border-foreground/20",
-                )}
-              >
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck
-                    className={cn(
-                      "size-4",
-                      action === "allow" && "text-emerald-500",
-                    )}
-                  />
-                  Allow
-                </span>
-                <span className="text-muted-foreground text-xs">
-                  Permit the request through
-                </span>
-              </button>
-            ) : (
+          <div
+            className={cn(
+              "grid gap-2",
+              isDenyMode ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4",
+            )}
+          >
+            {!isDenyMode && (
               <button
                 type="button"
                 onClick={() => setAction("block")}
@@ -483,6 +464,29 @@ export const CustomEndpointForm = ({
               </span>
               <span className="text-muted-foreground text-xs">
                 Require human approval before proceeding
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAction("allow")}
+              className={cn(
+                "flex flex-col gap-1.5 rounded-md border p-3.5 text-left transition-colors",
+                action === "allow"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "hover:bg-muted/50 hover:border-foreground/20",
+              )}
+            >
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <ShieldCheck
+                  className={cn(
+                    "size-4",
+                    action === "allow" && "text-emerald-500",
+                  )}
+                />
+                Allow
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Permit this host (allow-list entry)
               </span>
             </button>
           </div>

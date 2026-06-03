@@ -20,7 +20,7 @@ model Organization {
   stripeCustomerId   String?  @unique @map("stripe_customer_id")
   subscriptionStatus String   @default("free") @map("subscription_status")
   awsExternalId      String?  @map("aws_external_id")
-  policyMode         String   @default("allow") @map("policy_mode") // "allow" | "deny"
+  policyMode         String   @default("deny") @map("policy_mode") // "allow" | "deny"
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -161,6 +161,7 @@ model Agent {
   accessToken String   @unique @map("access_token") // "aoc_..." prefix, used for gateway auth
   isDefault   Boolean  @default(false) @map("is_default")
   secretMode  String   @default("all") @map("secret_mode") // "all" or "selective"
+  policyMode  String?  @map("policy_mode") // null = inherit org default; "allow" | "deny"
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   project     Project  @relation(fields: [projectId], references: [id])

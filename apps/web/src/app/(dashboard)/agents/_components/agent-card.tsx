@@ -8,6 +8,7 @@ import {
   KeyRound,
   Pencil,
   Star,
+  Globe,
 } from "lucide-react";
 import { Card } from "@onecli/ui/components/card";
 import { Button } from "@onecli/ui/components/button";
@@ -51,6 +52,7 @@ import {
 } from "@/hooks/use-agents";
 import type { SecretMode } from "@onecli/api/services/agent-service";
 import { ManageAccessDialog } from "./manage-access-dialog";
+import { NetworkAccessDialog } from "./network-access-dialog";
 
 interface AgentCardProps {
   agent: {
@@ -60,6 +62,7 @@ interface AgentCardProps {
     accessToken: string;
     isDefault: boolean;
     secretMode: SecretMode;
+    policyMode: "allow" | "deny" | null;
     createdAt: Date;
     _count: { agentSecrets: number; agentAppConnections: number };
   };
@@ -79,6 +82,7 @@ export const AgentCard = ({ agent, autoOpenAccess }: AgentCardProps) => {
   const [secretsDialogOpen, setSecretsDialogOpen] = useState(
     autoOpenAccess ?? false,
   );
+  const [networkDialogOpen, setNetworkDialogOpen] = useState(false);
 
   const handleRegenerate = () => regenerateMutation.mutate(agent.id);
 
@@ -154,6 +158,10 @@ export const AgentCard = ({ agent, autoOpenAccess }: AgentCardProps) => {
             <DropdownMenuItem onSelect={() => setSecretsDialogOpen(true)}>
               <KeyRound className="size-4" />
               Manage access
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setNetworkDialogOpen(true)}>
+              <Globe className="size-4" />
+              Network access
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setRotateDialogOpen(true)}>
               <RotateCw className="size-4" />
@@ -297,6 +305,14 @@ export const AgentCard = ({ agent, autoOpenAccess }: AgentCardProps) => {
         agent={agent}
         open={secretsDialogOpen}
         onOpenChange={setSecretsDialogOpen}
+      />
+
+      <NetworkAccessDialog
+        agentId={agent.id}
+        agentName={agent.name}
+        policyMode={agent.policyMode}
+        open={networkDialogOpen}
+        onOpenChange={setNetworkDialogOpen}
       />
     </Card>
   );

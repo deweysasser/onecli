@@ -395,6 +395,30 @@ pub(crate) fn blocked_by_default_policy<S>(
     ))
 }
 
+/// 403 Forbidden — CONNECT to a host with no allow rule in deny-by-default mode.
+///
+/// Returned before the tunnel is opened; no traffic reaches the upstream host.
+pub(super) fn connect_blocked(host: &str, project_id: Option<&str>) -> Response<axum::body::Body> {
+    let base = scoped_url(dashboard_url(), "", project_id);
+    let hostname = host.split(':').next().unwrap_or(host);
+    let encoded_host = utf8_percent_encode(hostname, NON_ALPHANUMERIC);
+    let mut resp = with_no_retry(json_error_axum(
+        StatusCode::FORBIDDEN,
+        serde_json::json!({
+            "error": "blocked_by_default_policy",
+            "message": format!(
+                "{hostname} is not on this agent's network allow list. \
+                 Add it in your OneCLI dashboard or set the agent to open."
+            ),
+            "host": hostname,
+            "dashboard_url": format!("{base}/rules?create=allow&host={encoded_host}"),
+        }),
+    ));
+    resp.headers_mut()
+        .insert("x-onecli-policy", HeaderValue::from_static("blocked"));
+    resp
+}
+
 /// 429 Too Many Requests — request rate-limited by a policy rule.
 pub(crate) fn rate_limited<S>(
     limit: u64,
@@ -834,6 +858,18 @@ mod tests {
             "application/json"
         );
         assert_eq!(resp.headers().get("x-should-retry").unwrap(), "false");
+    }
+
+    #[test]
+    fn connect_blocked_has_correct_status_and_headers() {
+        let resp = connect_blocked("evil.com:443", None);
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+        assert_eq!(resp.headers().get("x-should-retry").unwrap(), "false");
+        assert_eq!(resp.headers().get("x-onecli-policy").unwrap(), "blocked");
     }
 
     #[test]

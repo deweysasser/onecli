@@ -5,7 +5,7 @@ import { getPolicyMode } from "@/lib/actions/policy-mode";
 import { PolicyModeToggle } from "./_components/policy-mode-toggle";
 
 export const metadata: Metadata = {
-  title: "Policy",
+  title: "Network Access Policy",
 };
 
 export default async function PolicyPage() {

@@ -560,32 +560,49 @@ async fn handle_connect(
     // Extract agent token from Proxy-Authorization header.
     let agent_token = inject::extract_agent_token(&req).filter(|t| !t.is_empty());
 
+    if agent_token.is_none() {
+        warn!(peer = %peer_addr, host = %host, "CONNECT rejected: missing agent token");
+        return Ok(response::proxy_auth_required());
+    }
+
     // Resolve at CONNECT time for the intercept decision and agent identity.
     // DB injection/policy rules are NOT frozen here — they're re-resolved
     // per request inside the MITM tunnel from cache (see mitm.rs).
-    let (mut intercept, project_id, organization_id, agent_id, agent_name, agent_identifier) =
-        if let Some(ref token) = agent_token {
-            match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
-                Ok(resp) => (
-                    resp.intercept,
-                    resp.project_id,
-                    resp.organization_id,
-                    resp.agent_id,
-                    resp.agent_name,
-                    resp.agent_identifier,
-                ),
-                Err(ConnectError::InvalidToken) => {
-                    warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
-                    return Ok(response::proxy_auth_required());
-                }
-                Err(ConnectError::Internal(e)) => {
-                    warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
-                    return Ok(response::bad_gateway());
-                }
+    let connect_response: Option<connect::ConnectResponse> = if let Some(ref token) = agent_token {
+        match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
+            Ok(resp) => Some(resp),
+            Err(ConnectError::InvalidToken) => {
+                warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
+                return Ok(response::proxy_auth_required());
             }
-        } else {
-            (false, None, None, None, None, None)
-        };
+            Err(ConnectError::Internal(e)) => {
+                warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
+                return Ok(response::bad_gateway());
+            }
+        }
+    } else {
+        unreachable!("agent_token is Some: checked by the no-token guard above")
+    };
+
+    // Deny-mode allow-list gate: refuse the CONNECT (no tunnel) when the host
+    // is not permitted for this agent.
+    if let Some(ref resp) = connect_response {
+        if !resp.host_allowed_at_connect(&hostname) {
+            warn!(peer = %peer_addr, host = %host, "CONNECT blocked by network allow list");
+            return Ok(response::connect_blocked(&host, resp.project_id.as_deref()));
+        }
+    }
+
+    let mut intercept = connect_response.as_ref().is_some_and(|r| r.intercept);
+    let project_id = connect_response.as_ref().and_then(|r| r.project_id.clone());
+    let organization_id = connect_response
+        .as_ref()
+        .and_then(|r| r.organization_id.clone());
+    let agent_id = connect_response.as_ref().and_then(|r| r.agent_id.clone());
+    let agent_name = connect_response.as_ref().and_then(|r| r.agent_name.clone());
+    let agent_identifier = connect_response
+        .as_ref()
+        .and_then(|r| r.agent_identifier.clone());
 
     // Vault fallback: resolved at CONNECT time and passed to mitm as a frozen
     // fallback. Vault queries are expensive (network calls to Bitwarden), so
@@ -712,6 +729,11 @@ async fn handle_http_proxy(
 
     let agent_token = inject::extract_agent_token(&req).filter(|t| !t.is_empty());
 
+    if agent_token.is_none() {
+        warn!(peer = %peer_addr, host = %authority, "HTTP proxy rejected: missing agent token");
+        return Ok(response::proxy_auth_required());
+    }
+
     let connection_id = connect::extract_connection_id(req.headers());
 
     let mut resolved = if let Some(ref token) = agent_token {
@@ -727,8 +749,18 @@ async fn handle_http_proxy(
             }
         }
     } else {
-        connect::ConnectResponse::default()
+        unreachable!("agent_token is Some: checked by the no-token guard above")
     };
+
+    // Deny-mode allow-list gate: refuse before forwarding when the host
+    // is not permitted for this agent.
+    if !resolved.host_allowed_at_connect(&hostname) {
+        warn!(peer = %peer_addr, host = %authority, "HTTP proxy blocked by network allow list");
+        return Ok(response::connect_blocked(
+            &authority,
+            resolved.project_id.as_deref(),
+        ));
+    }
 
     // Per-request app connection disambiguation
     let mut resolved_finalizer: Option<crate::apps::RequestFinalizer> = None;
