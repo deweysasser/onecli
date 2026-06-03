@@ -67,6 +67,7 @@ Open **http://localhost:10254**, create an agent, add your secrets, and point yo
 - **Encrypted secret storage**: AES-256-GCM encryption at rest, decrypted only at request time
 - **Host & path matching**: route secrets to the right API endpoints with pattern matching
 - **Multi-agent support**: each agent gets its own access token with scoped permissions
+- **[Network access policy](docs/network-access.md)**: per-agent egress allow list — deny by default, so a compromised agent can't reach hosts it wasn't granted
 - **Easy setup**: `curl -fsSL https://onecli.sh/install | sh` starts everything (app + PostgreSQL)
 - **Two auth modes**: single-user (no login) for local use, or Google OAuth for teams
 - **Rust gateway**: fast, memory-safe HTTP gateway with MITM interception for HTTPS
