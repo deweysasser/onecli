@@ -71,9 +71,7 @@ impl ConnectResponse {
                     | PolicyAction::ManualApproval { .. }
             )
         });
-        has_allow_rule
-            || !self.injection_rules.is_empty()
-            || !self.app_connections.is_empty()
+        has_allow_rule || !self.injection_rules.is_empty() || !self.app_connections.is_empty()
     }
 }
 

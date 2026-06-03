@@ -177,7 +177,10 @@ fn connect_without_auth_rejected() {
     let n = stream.read(&mut buf).expect("read response");
     let resp = String::from_utf8_lossy(&buf[..n]);
 
-    assert!(resp.contains("407"), "expected 407 (auth required), got: {resp}");
+    assert!(
+        resp.contains("407"),
+        "expected 407 (auth required), got: {resp}"
+    );
 
     child.kill().ok();
     child.wait().ok();
@@ -284,7 +287,10 @@ fn http_proxy_without_auth_rejected() {
     let n = stream.read(&mut buf).expect("read response");
     let resp = String::from_utf8_lossy(&buf[..n]);
 
-    assert!(resp.contains("407"), "expected 407 (auth required), got: {resp}");
+    assert!(
+        resp.contains("407"),
+        "expected 407 (auth required), got: {resp}"
+    );
 
     child.kill().ok();
     child.wait().ok();

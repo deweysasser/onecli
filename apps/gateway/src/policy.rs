@@ -777,7 +777,16 @@ mod tests {
         let store = crate::cache::create_store().await.unwrap();
         let rules: Vec<PolicyRule> = vec![];
         let d = evaluate(
-            "org1", "proj1", "POST", "/v1/messages", None, &rules, "agent1", &*store, "deny", true,
+            "org1",
+            "proj1",
+            "POST",
+            "/v1/messages",
+            None,
+            &rules,
+            "agent1",
+            &*store,
+            "deny",
+            true,
             true,
         )
         .await;

@@ -398,10 +398,7 @@ pub(crate) fn blocked_by_default_policy<S>(
 /// 403 Forbidden — CONNECT to a host with no allow rule in deny-by-default mode.
 ///
 /// Returned before the tunnel is opened; no traffic reaches the upstream host.
-pub(super) fn connect_blocked(
-    host: &str,
-    project_id: Option<&str>,
-) -> Response<axum::body::Body> {
+pub(super) fn connect_blocked(host: &str, project_id: Option<&str>) -> Response<axum::body::Body> {
     let base = scoped_url(dashboard_url(), "", project_id);
     let hostname = host.split(':').next().unwrap_or(host);
     let encoded_host = utf8_percent_encode(hostname, NON_ALPHANUMERIC);
@@ -417,10 +414,8 @@ pub(super) fn connect_blocked(
             "dashboard_url": format!("{base}/rules?create=allow&host={encoded_host}"),
         }),
     ));
-    resp.headers_mut().insert(
-        "x-onecli-policy",
-        HeaderValue::from_static("blocked"),
-    );
+    resp.headers_mut()
+        .insert("x-onecli-policy", HeaderValue::from_static("blocked"));
     resp
 }
 

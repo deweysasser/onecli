@@ -568,22 +568,21 @@ async fn handle_connect(
     // Resolve at CONNECT time for the intercept decision and agent identity.
     // DB injection/policy rules are NOT frozen here — they're re-resolved
     // per request inside the MITM tunnel from cache (see mitm.rs).
-    let connect_response: Option<connect::ConnectResponse> =
-        if let Some(ref token) = agent_token {
-            match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
-                Ok(resp) => Some(resp),
-                Err(ConnectError::InvalidToken) => {
-                    warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
-                    return Ok(response::proxy_auth_required());
-                }
-                Err(ConnectError::Internal(e)) => {
-                    warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
-                    return Ok(response::bad_gateway());
-                }
+    let connect_response: Option<connect::ConnectResponse> = if let Some(ref token) = agent_token {
+        match connect::resolve(token, &hostname, &state.policy_engine, &*state.cache).await {
+            Ok(resp) => Some(resp),
+            Err(ConnectError::InvalidToken) => {
+                warn!(peer = %peer_addr, host = %host, "CONNECT rejected: invalid agent token");
+                return Ok(response::proxy_auth_required());
             }
-        } else {
-            unreachable!("agent_token is Some: checked by the no-token guard above")
-        };
+            Err(ConnectError::Internal(e)) => {
+                warn!(peer = %peer_addr, host = %host, error = %e, "CONNECT rejected: internal error");
+                return Ok(response::bad_gateway());
+            }
+        }
+    } else {
+        unreachable!("agent_token is Some: checked by the no-token guard above")
+    };
 
     // Deny-mode allow-list gate: refuse the CONNECT (no tunnel) when the host
     // is not permitted for this agent.
@@ -757,7 +756,10 @@ async fn handle_http_proxy(
     // is not permitted for this agent.
     if !resolved.host_allowed_at_connect(&hostname) {
         warn!(peer = %peer_addr, host = %authority, "HTTP proxy blocked by network allow list");
-        return Ok(response::connect_blocked(&authority, resolved.project_id.as_deref()));
+        return Ok(response::connect_blocked(
+            &authority,
+            resolved.project_id.as_deref(),
+        ));
     }
 
     // Per-request app connection disambiguation
