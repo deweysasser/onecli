@@ -12,10 +12,18 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # The release PAT is only configured on the canonical upstream repo.
+      # Forks do not have it, so we map it to an env var we can test below.
+      RELEASE_TOKEN: ${{ secrets.ONECLI_OSS_RELEASE }}
     steps:
       - name: release-please
         id: release
+        # Skip on forks (or anywhere the PAT is missing) instead of failing with
+        # "Input required and not supplied: token". When the secret is present
+        # (upstream), the step runs exactly as before.
+        if: ${{ env.RELEASE_TOKEN != '' }}
         uses: googleapis/release-please-action@v4
         with:
           release-type: node
-          token: ${{ secrets.ONECLI_OSS_RELEASE }}
+          token: ${{ env.RELEASE_TOKEN }}
